@@ -1,0 +1,19 @@
+server {
+    listen 80 default_server;
+
+    root /var/www/static/{{ FrontEndServiceName }};
+    server_name {{ BaseURL }};
+
+    location /api {
+        access_log off;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_pass http://127.0.0.1:{{ APIServicePort }}/api;
+    }
+
+    # Redirect non-https traffic to https
+    if ($scheme != "https") {
+        return 301 https://$host$request_uri;
+    }
+
+}

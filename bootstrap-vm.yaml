@@ -1,0 +1,41 @@
+---
+
+- name: Bootstrap new droplet
+  hosts: bootstrapservers
+  remote_user: root
+  tasks:
+    - name: upgrade apt
+      apt:
+        upgrade: dist
+        update_cache: yes
+    - name: install npm
+      apt:
+        name: npm
+        update_cache: no
+    - name: install docker.io
+      apt:
+        name: docker.io
+        update_cache: no
+    - name: install nginx
+      apt:
+        name: nginx
+        update_cache: no
+    - name: delete default nginx shit
+      file:
+        path: '{{ item }}'
+        state: absent
+      with_items:
+        - /etc/nginx/sites-available/default
+        - /etc/nginx/sites-enabled/default
+    - name: restart nginx
+      service:
+        name: nginx
+        state: restarted
+    - name: install certbot
+      apt:
+        name: certbot
+        update_cache: no
+    - name: install python3-certbot-nginx
+      apt:
+        name: python3-certbot-nginx
+        update_cache: no

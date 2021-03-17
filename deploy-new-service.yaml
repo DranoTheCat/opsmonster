@@ -1,0 +1,97 @@
+---
+
+- name: Deploy a new flask service
+  hosts: deployservers 
+  remote_user: root
+  vars_prompt:
+    - name: BaseURL
+      prompt: BaseURL 
+      private: no 
+    - name: FrontEndServiceName
+      prompt: FrontEndServiceName
+      private: no 
+    - name: APIServiceName
+      prompt: APIServiceName
+      private: no 
+    - name: APIServicePort
+      prompt: APIServicePort
+      private: no 
+    - name: GitHubUser
+      prompt: GitHubUser
+      private: no 
+    - name: MONSTERKNIFE
+      prompt: MONSTERKNIFE
+      private: yes
+  tasks:
+    - name: '{{ APIServiceName }}  Create GitHub Deploy key'
+      command: ssh-keygen -t rsa -f /root/.ssh/{{ APIServiceName }}_rsa -C '{{ APIServiceName }} deploy' -N ""
+    - name: '{{ APIServiceName }} Show GitHub Deploy key'
+      command: 'cat /root/.ssh/{{ APIServiceName }}_rsa.pub'
+      register: apiservice_cat_output
+    - name: Waiting for you to add the Deploy key
+      pause:
+        prompt: "Your {{ APIServiceName }} Deploy key is:\n\n{{ apiservice_cat_output.stdout }}"
+    - name: 'Clone {{ APIServiceName }} GitHub repo'
+      environment:
+        GIT_SSH_COMMAND: 'ssh -i /root/.ssh/{{ APIServiceName }}_rsa -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no'
+      command: 'git clone git@github.com:{{ GitHubUser }}/{{ APIServiceName }}.git'
+      args:
+        chdir: /root
+    - name: Wait for aws credentials
+      pause:
+        prompt: Create your aws-credentials file in ~/.aws/credentials
+    - name: 'Build {{ APIServiceName }} docker image'
+      command: 'docker build -t {{ APIServiceName }}:latest .'
+      args:
+        chdir: '/root/{{ APIServiceName }}'
+    - name: 'Launch {{ APIServiceName }} docker image'
+      command: bash ./launch-it.bash
+      args:
+        chdir: '/root/{{ APIServiceName }}'
+      environment:
+        MONSTERKNIFE: '{{ MONSTERKNIFE }}'
+    - name: '{{ FrontEndServiceName }}  Create GitHub Deploy key'
+      command: 'ssh-keygen -t rsa -f /root/.ssh/{{ FrontEndServiceName }}_rsa -C "{{ FrontEndServiceName }} deploy" -N ""'
+    - name: '{{ FrontEndServiceName }} Show GitHub Deploy key'
+      command: 'cat /root/.ssh/{{ FrontEndServiceName }}_rsa.pub'
+      register: frontendservice_cat_output
+    - name: Waiting for you to add the Deploy key
+      pause:
+        prompt: "Your {{ FrontEndServiceName }} Deploy key is:\n\n{{ frontendservice_cat_output.stdout }}"
+    - name: 'Clone {{ FrontEndServiceName }} GitHub repo'
+      environment:
+        GIT_SSH_COMMAND: 'ssh -i /root/.ssh/{{ FrontEndServiceName }}_rsa -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no'
+      command: 'git clone git@github.com:{{ GitHubUser }}/{{ FrontEndServiceName }}.git'
+      args:
+        chdir: /root
+    - name: 'Install {{ FrontEndServiceName }}'
+      command: npm install
+      args:
+        chdir: '/root/{{ FrontEndServiceName }}'
+    - name: 'Build {{ FrontEndServiceName }}'
+      command: npm run build
+      args:
+        chdir: '/root/{{ FrontEndServiceName }}'
+    - name: 'Ensure /var/www/static'
+      file: 
+        path: /var/www/static
+        state: directory 
+    - name: 'Deploy {{ FrontEndServiceName }}'
+      command: 'mv dist/ /var/www/static/{{ FrontEndServiceName }}'
+      args:
+        chdir: '/root/{{ FrontEndServiceName }}'
+    - name: 'Deploy {{ FrontEndServiceName }} nginx configuration'
+      template:
+        src: templates/service-vhost.conf.j2
+        dest: '/etc/nginx/sites-available/{{ FrontEndServiceName }}'
+    - name: 'Link {{ APIServiceName }} nginx configuration'
+      ansible.builtin.file:
+        src: '/etc/nginx/sites-available/{{ FrontEndServiceName }}'
+        dest: '/etc/nginx/sites-enabled/{{ FrontEndServiceName }}'
+        state: link
+    - name: restart nginx
+      service:
+        name: nginx
+        state: restarted
+    - name: Run certbot setup for {{ BaseURL }}
+      command: certbot --nginx -d {{ BaseURL }} --agree-tos -m dranothecat\@gmail.com -n

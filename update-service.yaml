@@ -1,0 +1,86 @@
+---
+
+- name: Update an existing flask service
+  hosts: deployservers 
+  remote_user: root
+  vars_prompt:
+    - name: BaseURL
+      prompt: BaseURL 
+      private: no 
+    - name: FrontEndServiceName
+      prompt: FrontEndServiceName
+      private: no 
+    - name: APIServiceName
+      prompt: APIServiceName
+      private: no 
+    - name: APIServicePort
+      prompt: APIServicePort
+      private: no 
+    - name: GitHubUser
+      prompt: GitHubUser
+      private: no 
+    - name: MONSTERKNIFE 
+      prompt: MONSTERKNIFE
+      private: yes
+  tasks:
+    - name: 'Stash {{ APIServiceName }} GitHub repo'
+      environment:
+        GIT_SSH_COMMAND: 'ssh -i /root/.ssh/{{ APIServiceName }}_rsa -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no'
+      command: 'git stash'
+      args:
+        chdir: '/root/{{ APIServiceName }}'
+    - name: 'Pull and Rebase from {{ APIServiceName }} GitHub repo'
+      environment:
+        GIT_SSH_COMMAND: 'ssh -i /root/.ssh/{{ APIServiceName }}_rsa -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no'
+      command: 'git pull --rebase'
+      args:
+        chdir: '/root/{{ APIServiceName }}'
+    - name: 'Build {{ APIServiceName }} docker image'
+      command: 'docker build -t {{ APIServiceName }}:latest .'
+      args:
+        chdir: '/root/{{ APIServiceName }}'
+    - name: 'Find existing {{ APIServiceName }} runtime'
+      ansible.builtin.shell:
+        cmd: "docker ps | grep {{ APIServiceName }} | awk '{print $1}'"
+      register: imageid
+    - name: 'Terminate docker container {{ imageid.stdout }}'
+      command: 'docker kill {{ imageid.stdout }}'
+      ignore_errors: yes
+    - name: 'Remove container {{ APIServiceName }}'
+      command: 'docker container rm {{ APIServiceName }}'
+      ignore_errors: yes
+    - name: 'Launch {{ APIServiceName }} docker image'
+      command: bash ./launch-it.bash
+      args:
+        chdir: '/root/{{ APIServiceName }}'
+      environment:
+        MONSTERKNIFE: '{{ MONSTERKNIFE }}'
+
+    - name: 'Stash {{ FrontEndServiceName }} GitHub repo'
+      environment:
+        GIT_SSH_COMMAND: 'ssh -i /root/.ssh/{{ FrontEndServiceName }}_rsa -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no'
+      command: 'git stash'
+      args:
+        chdir: '/root/{{ FrontEndServiceName }}'
+    - name: 'Pull and Rebase from {{ FrontEndServiceName }} GitHub repo'
+      environment:
+        GIT_SSH_COMMAND: 'ssh -i /root/.ssh/{{ FrontEndServiceName }}_rsa -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no'
+      command: 'git pull --rebase'
+      args:
+        chdir: '/root/{{ FrontEndServiceName }}'
+    - name: 'Install {{ FrontEndServiceName }}'
+      command: npm install
+      args:
+        chdir: '/root/{{ FrontEndServiceName }}'
+    - name: 'Build {{ FrontEndServiceName }}'
+      command: npm run build
+      args:
+        chdir: '/root/{{ FrontEndServiceName }}'
+    - name: 'Delete /var/www/static/{{ FrontEndServiceName }}'
+      file:
+        path: '/var/www/static/{{ FrontEndServiceName }}'
+        state: absent
+    - name: 'Deploy {{ FrontEndServiceName }}'
+      command: 'mv dist/ /var/www/static/{{ FrontEndServiceName }}'
+      args:
+        chdir: '/root/{{ FrontEndServiceName }}'
